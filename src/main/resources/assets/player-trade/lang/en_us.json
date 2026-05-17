@@ -1,0 +1,19 @@
+{
+	"player-trade.screen.title": "Trade with %s",
+	"player-trade.screen.your_offer": "Your Offer",
+	"player-trade.screen.their_offer": "Their Offer",
+	"player-trade.screen.accept": "Accept",
+	"player-trade.screen.cancel": "Cancel",
+	"player-trade.screen.waiting": "Waiting...",
+	"player-trade.screen.accepted": "Accepted!",
+	"player-trade.chat.trade_request": "%s wants to trade with you! ",
+	"player-trade.chat.server_trade_request": "The server wants to give you items! ",
+	"player-trade.chat.accept_button": "[Accept]",
+	"player-trade.chat.request_sent": "Trade request sent to %s",
+	"player-trade.chat.request_expired": "Trade request expired",
+	"player-trade.chat.trade_cancelled": "Trade cancelled",
+	"player-trade.chat.trade_complete": "Trade complete!",
+	"player-trade.chat.player_busy": "%s is already in a trade",
+	"player-trade.chat.already_trading": "You are already in a trade",
+	"player-trade.chat.inventory_full": "Trade failed: inventory full"
+}

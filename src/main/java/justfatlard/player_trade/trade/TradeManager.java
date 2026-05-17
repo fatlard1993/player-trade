@@ -1,0 +1,301 @@
+package justfatlard.player_trade.trade;
+
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import justfatlard.player_trade.PlayerTrade;
+import net.minecraft.ChatFormatting;
+import net.minecraft.network.chat.ClickEvent;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.HoverEvent;
+import net.minecraft.network.chat.Style;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.ItemStack;
+
+public class TradeManager {
+    private static TradeManager instance;
+    private final Map<UUID, TradeSession> activeTrades = new ConcurrentHashMap<>();
+    private final Map<UUID, UUID> playerToSession = new ConcurrentHashMap<>();
+    private final Map<UUID, TradeRequest> pendingRequests = new ConcurrentHashMap<>();
+    private final Map<UUID, List<ItemStack>> pendingServerItems = new ConcurrentHashMap<>();
+
+    public static TradeManager getInstance() {
+        if (instance == null) {
+            instance = new TradeManager();
+        }
+        return instance;
+    }
+
+    public boolean isInTrade(UUID playerId) {
+        return this.playerToSession.containsKey(playerId);
+    }
+
+    public TradeSession getTradeSession(UUID playerId) {
+        UUID sessionId = this.playerToSession.get(playerId);
+        return sessionId == null ? null : this.activeTrades.get(sessionId);
+    }
+
+    public void sendTradeRequest(ServerPlayer sender, ServerPlayer target) {
+        UUID senderId = sender.getUUID();
+        UUID targetId = target.getUUID();
+        if (this.isInTrade(senderId)) {
+            sender.sendSystemMessage(Component.translatable("player-trade.chat.already_trading").withStyle(ChatFormatting.RED));
+        } else if (this.isInTrade(targetId)) {
+            sender.sendSystemMessage(
+                Component.translatable("player-trade.chat.player_busy", target.getName()).withStyle(ChatFormatting.RED)
+            );
+        } else {
+            TradeRequest request = new TradeRequest(senderId, targetId, System.currentTimeMillis());
+            this.pendingRequests.put(targetId, request);
+            sender.sendSystemMessage(
+                Component.translatable("player-trade.chat.request_sent", target.getName()).withStyle(ChatFormatting.GREEN)
+            );
+            Component acceptButton = Component.translatable("player-trade.chat.accept_button")
+                .setStyle(
+                    Style.EMPTY
+                        .withColor(ChatFormatting.GREEN)
+                        .withBold(true)
+                        .withClickEvent(new ClickEvent.RunCommand("/trade accept " + sender.getName().getString()))
+                        .withHoverEvent(new HoverEvent.ShowText(Component.literal("Click to accept trade")))
+                );
+            Component message = Component.translatable("player-trade.chat.trade_request", sender.getName())
+                .withStyle(ChatFormatting.YELLOW)
+                .append(acceptButton);
+            target.sendSystemMessage(message);
+        }
+    }
+
+    public void acceptTradeRequest(ServerPlayer acceptor, String senderName, MinecraftServer server) {
+        UUID acceptorId = acceptor.getUUID();
+        TradeRequest request = this.pendingRequests.get(acceptorId);
+        if (request != null && !request.isExpired()) {
+            if (request.senderId().equals(TradeSession.SERVER_UUID) && senderName.equalsIgnoreCase("Server")) {
+                this.acceptServerTradeRequest(acceptor, server);
+            } else {
+                ServerPlayer sender = server.getPlayerList().getPlayer(request.senderId());
+                if (sender == null) {
+                    acceptor.sendSystemMessage(Component.translatable("player-trade.chat.request_expired").withStyle(ChatFormatting.RED));
+                    this.pendingRequests.remove(acceptorId);
+                } else if (sender.getName().getString().equalsIgnoreCase(senderName)) {
+                    if (!this.isInTrade(acceptorId) && !this.isInTrade(request.senderId())) {
+                        this.pendingRequests.remove(acceptorId);
+                        this.startTrade(sender, acceptor);
+                    } else {
+                        acceptor.sendSystemMessage(
+                            Component.translatable("player-trade.chat.player_busy", sender.getName()).withStyle(ChatFormatting.RED)
+                        );
+                        this.pendingRequests.remove(acceptorId);
+                    }
+                }
+            }
+        } else {
+            acceptor.sendSystemMessage(Component.translatable("player-trade.chat.request_expired").withStyle(ChatFormatting.RED));
+            this.pendingRequests.remove(acceptorId);
+        }
+    }
+
+    public void startTrade(ServerPlayer player1, ServerPlayer player2) {
+        TradeSession session = new TradeSession(player1.getUUID(), player2.getUUID());
+        this.activeTrades.put(session.getSessionId(), session);
+        this.playerToSession.put(player1.getUUID(), session.getSessionId());
+        this.playerToSession.put(player2.getUUID(), session.getSessionId());
+        PlayerTrade.openTradeScreen(player1, player2.getName(), session);
+        PlayerTrade.openTradeScreen(player2, player1.getName(), session);
+    }
+
+    public void cancelTrade(UUID playerId, MinecraftServer server) {
+        TradeSession session = this.getTradeSession(playerId);
+        if (session != null) {
+            if (session.isServerTrade()) {
+                this.cancelServerTrade(playerId, server);
+            } else {
+                this.activeTrades.remove(session.getSessionId());
+                this.playerToSession.remove(session.getPlayer1Id());
+                this.playerToSession.remove(session.getPlayer2Id());
+                ServerPlayer player1 = server.getPlayerList().getPlayer(session.getPlayer1Id());
+                ServerPlayer player2 = server.getPlayerList().getPlayer(session.getPlayer2Id());
+                if (player1 != null) {
+                    session.returnItemsToPlayer(player1);
+                    player1.closeContainer();
+                    player1.sendSystemMessage(Component.translatable("player-trade.chat.trade_cancelled").withStyle(ChatFormatting.RED));
+                }
+                if (player2 != null) {
+                    session.returnItemsToPlayer(player2);
+                    player2.closeContainer();
+                    player2.sendSystemMessage(Component.translatable("player-trade.chat.trade_cancelled").withStyle(ChatFormatting.RED));
+                }
+            }
+        }
+    }
+
+    public boolean completeTrade(UUID playerId, MinecraftServer server) {
+        TradeSession session = this.getTradeSession(playerId);
+        if (session == null || !session.bothAccepted()) {
+            return false;
+        } else if (session.isServerTrade()) {
+            return this.completeServerTrade(playerId, server);
+        } else {
+            ServerPlayer player1 = server.getPlayerList().getPlayer(session.getPlayer1Id());
+            ServerPlayer player2 = server.getPlayerList().getPlayer(session.getPlayer2Id());
+            if (player1 == null || player2 == null) {
+                this.cancelTrade(playerId, server);
+                return false;
+            } else if (this.canReceiveItems(player1, session.getOtherPlayerOffer(player1.getUUID()))
+                && this.canReceiveItems(player2, session.getOtherPlayerOffer(player2.getUUID()))) {
+                this.transferItems(player1, session.getOtherPlayerOffer(player1.getUUID()));
+                this.transferItems(player2, session.getOtherPlayerOffer(player2.getUUID()));
+
+                for (int i = 0; i < 9; i++) {
+                    session.getPlayerOffer(player1.getUUID()).set(i, ItemStack.EMPTY);
+                    session.getPlayerOffer(player2.getUUID()).set(i, ItemStack.EMPTY);
+                }
+
+                player1.sendSystemMessage(Component.translatable("player-trade.chat.trade_complete").withStyle(ChatFormatting.GREEN));
+                player2.sendSystemMessage(Component.translatable("player-trade.chat.trade_complete").withStyle(ChatFormatting.GREEN));
+                player1.closeContainer();
+                player2.closeContainer();
+                this.activeTrades.remove(session.getSessionId());
+                this.playerToSession.remove(session.getPlayer1Id());
+                this.playerToSession.remove(session.getPlayer2Id());
+                return true;
+            } else {
+                player1.sendSystemMessage(Component.translatable("player-trade.chat.inventory_full").withStyle(ChatFormatting.RED));
+                player2.sendSystemMessage(Component.translatable("player-trade.chat.inventory_full").withStyle(ChatFormatting.RED));
+                return false;
+            }
+        }
+    }
+
+    private boolean canReceiveItems(ServerPlayer player, List<ItemStack> items) {
+        int emptySlots = 0;
+        for (int i = 0; i < 36; i++) {
+            if (player.getInventory().getItem(i).isEmpty()) {
+                emptySlots++;
+            }
+        }
+
+        int nonEmptyItems = 0;
+        for (ItemStack stack : items) {
+            if (!stack.isEmpty()) {
+                nonEmptyItems++;
+            }
+        }
+        return emptySlots >= nonEmptyItems;
+    }
+
+    private void transferItems(ServerPlayer player, List<ItemStack> items) {
+        for (ItemStack stack : items) {
+            if (!stack.isEmpty() && !player.getInventory().add(stack.copy())) {
+                player.drop(stack.copy(), false);
+            }
+        }
+    }
+
+    public void cleanupExpiredRequests() {
+        this.pendingRequests.entrySet().removeIf(entry -> entry.getValue().isExpired());
+    }
+
+    public void sendServerTradeRequest(ServerPlayer target, List<ItemStack> items) {
+        UUID targetId = target.getUUID();
+        if (!this.isInTrade(targetId)) {
+            TradeRequest request = new TradeRequest(TradeSession.SERVER_UUID, targetId, System.currentTimeMillis());
+            this.pendingRequests.put(targetId, request);
+            this.pendingServerItems.put(targetId, items);
+            Component acceptButton = Component.translatable("player-trade.chat.accept_button")
+                .setStyle(
+                    Style.EMPTY
+                        .withColor(ChatFormatting.GREEN)
+                        .withBold(true)
+                        .withClickEvent(new ClickEvent.RunCommand("/trade accept Server"))
+                        .withHoverEvent(new HoverEvent.ShowText(Component.literal("Click to accept trade")))
+                );
+            Component message = Component.translatable("player-trade.chat.server_trade_request")
+                .withStyle(ChatFormatting.GOLD)
+                .append(acceptButton);
+            target.sendSystemMessage(message);
+        }
+    }
+
+    public void acceptServerTradeRequest(ServerPlayer acceptor, MinecraftServer server) {
+        UUID acceptorId = acceptor.getUUID();
+        TradeRequest request = this.pendingRequests.get(acceptorId);
+        if (request == null || request.isExpired() || !request.senderId().equals(TradeSession.SERVER_UUID)) {
+            acceptor.sendSystemMessage(Component.translatable("player-trade.chat.request_expired").withStyle(ChatFormatting.RED));
+            this.pendingRequests.remove(acceptorId);
+            this.pendingServerItems.remove(acceptorId);
+        } else if (this.isInTrade(acceptorId)) {
+            acceptor.sendSystemMessage(Component.translatable("player-trade.chat.already_trading").withStyle(ChatFormatting.RED));
+            this.pendingRequests.remove(acceptorId);
+            this.pendingServerItems.remove(acceptorId);
+        } else {
+            List<ItemStack> items = this.pendingServerItems.remove(acceptorId);
+            if (items != null && !items.isEmpty()) {
+                this.pendingRequests.remove(acceptorId);
+                this.startServerTrade(acceptor, items);
+            } else {
+                acceptor.sendSystemMessage(Component.translatable("player-trade.chat.request_expired").withStyle(ChatFormatting.RED));
+                this.pendingRequests.remove(acceptorId);
+            }
+        }
+    }
+
+    public void startServerTrade(ServerPlayer player, List<ItemStack> items) {
+        TradeSession session = new TradeSession(player.getUUID(), TradeSession.SERVER_UUID, true);
+        session.setServerOffer(items);
+        this.activeTrades.put(session.getSessionId(), session);
+        this.playerToSession.put(player.getUUID(), session.getSessionId());
+        PlayerTrade.openTradeScreen(player, Component.literal("Server"), session);
+    }
+
+    public boolean completeServerTrade(UUID playerId, MinecraftServer server) {
+        TradeSession session = this.getTradeSession(playerId);
+        if (session != null && session.isServerTrade() && session.bothAccepted()) {
+            ServerPlayer player = server.getPlayerList().getPlayer(session.getPlayer1Id());
+            if (player == null) {
+                this.cancelServerTrade(playerId, server);
+                return false;
+            } else if (!this.canReceiveItems(player, session.getOtherPlayerOffer(player.getUUID()))) {
+                player.sendSystemMessage(Component.translatable("player-trade.chat.inventory_full").withStyle(ChatFormatting.RED));
+                return false;
+            } else {
+                this.transferItems(player, session.getOtherPlayerOffer(player.getUUID()));
+
+                for (int i = 0; i < 9; i++) {
+                    session.getPlayerOffer(TradeSession.SERVER_UUID).set(i, ItemStack.EMPTY);
+                }
+
+                player.sendSystemMessage(Component.translatable("player-trade.chat.trade_complete").withStyle(ChatFormatting.GREEN));
+                player.closeContainer();
+                this.activeTrades.remove(session.getSessionId());
+                this.playerToSession.remove(session.getPlayer1Id());
+                return true;
+            }
+        } else {
+            return false;
+        }
+    }
+
+    public void cancelServerTrade(UUID playerId, MinecraftServer server) {
+        TradeSession session = this.getTradeSession(playerId);
+        if (session != null && session.isServerTrade()) {
+            this.activeTrades.remove(session.getSessionId());
+            this.playerToSession.remove(session.getPlayer1Id());
+            ServerPlayer player = server.getPlayerList().getPlayer(session.getPlayer1Id());
+            if (player != null) {
+                session.returnItemsToPlayer(player);
+                player.closeContainer();
+                player.sendSystemMessage(Component.translatable("player-trade.chat.trade_cancelled").withStyle(ChatFormatting.RED));
+            }
+        }
+    }
+
+    public record TradeRequest(UUID senderId, UUID targetId, long timestamp) {
+        public static final long EXPIRATION_MS = 30000L;
+
+        public boolean isExpired() {
+            return System.currentTimeMillis() - this.timestamp > 30000L;
+        }
+    }
+}

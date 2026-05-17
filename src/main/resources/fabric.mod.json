@@ -1,0 +1,22 @@
+{
+	"schemaVersion": 1,
+	"id": "player-trade",
+	"version": "${version}",
+	"name": "Player Trade",
+	"description": "Adds a player-to-player trading system",
+	"authors": ["justfatlard"],
+	"contact": {},
+	"license": "MIT",
+	"icon": "assets/player-trade/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": ["justfatlard.player_trade.PlayerTrade"]
+	},
+	"depends": {
+		"fabricloader": ">=0.18.1",
+		"fabric-api": "*",
+		"minecraft": ">=26.1",
+		"java": ">=25",
+		"pandorical": ">=1.0.0"
+	}
+}
