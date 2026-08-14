@@ -1,5 +1,6 @@
 package justfatlard.player_trade.trade;
 
+import net.minecraft.util.Prediction;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -130,6 +131,50 @@ public class TradeManager {
         }
     }
 
+    /**
+     * Handle a participant disconnecting mid-trade. Called from
+     * ServerPlayConnectionEvents.DISCONNECT, which fires while the disconnecting ServerPlayer is
+     * still fully in-world and before its data is saved (see PlayerTrade.registerDisconnectHandler).
+     *
+     * Cancels the disconnecting player's active trade and returns ALL escrowed items to BOTH
+     * parties so nothing is destroyed: the leaving player's items go back to its own (still-valid,
+     * about-to-be-saved) inventory via the direct player reference, and the counterparty (still
+     * online) gets its items back too. returnItemsToPlayer falls back to dropping at the player's
+     * position if the inventory is full, so no path can lose items.
+     */
+    public void handleDisconnect(ServerPlayer player, MinecraftServer server) {
+        UUID playerId = player.getUUID();
+        TradeSession session = this.getTradeSession(playerId);
+        if (session == null) {
+            return;
+        }
+        if (session.isServerTrade()) {
+            // Server trades: only player1 is a real player. Tear down and return its escrow
+            // directly (normally empty, since the player's own slots are read-only in a gift trade).
+            this.activeTrades.remove(session.getSessionId());
+            this.playerToSession.remove(session.getPlayer1Id());
+            session.returnItemsToPlayer(player);
+            return;
+        }
+        // Player-to-player trade: tear down mappings first so no further action re-enters.
+        this.activeTrades.remove(session.getSessionId());
+        this.playerToSession.remove(session.getPlayer1Id());
+        this.playerToSession.remove(session.getPlayer2Id());
+
+        // Return the disconnecting player's escrow using its still-valid direct reference,
+        // rather than a player-list lookup (which is being torn down as part of this disconnect).
+        session.returnItemsToPlayer(player);
+
+        // Return the counterparty's escrow; they are still online.
+        UUID otherId = session.getOtherPlayerId(playerId);
+        ServerPlayer other = (otherId == null) ? null : server.getPlayerList().getPlayer(otherId);
+        if (other != null) {
+            session.returnItemsToPlayer(other);
+            other.closeContainer();
+            other.sendSystemMessage(Component.translatable("player-trade.chat.trade_cancelled").withStyle(ChatFormatting.RED));
+        }
+    }
+
     public boolean completeTrade(UUID playerId, MinecraftServer server) {
         TradeSession session = this.getTradeSession(playerId);
         if (session == null || !session.bothAccepted()) {
@@ -188,7 +233,7 @@ public class TradeManager {
     private void transferItems(ServerPlayer player, List<ItemStack> items) {
         for (ItemStack stack : items) {
             if (!stack.isEmpty() && !player.getInventory().add(stack.copy())) {
-                player.drop(stack.copy(), false);
+                player.drop(stack.copy(), false, Prediction.SERVER_ONLY);
             }
         }
     }

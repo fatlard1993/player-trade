@@ -15,6 +15,7 @@ import justfatlard.player_trade.trade.TradeSession;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.player.UseEntityCallback;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -24,6 +25,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.Container;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.SimpleContainer;
@@ -48,6 +50,7 @@ public class PlayerTrade implements ModInitializer {
         this.registerPandoricalHandlers();
         this.registerPlayerInteraction();
         this.registerCommands();
+        this.registerDisconnectHandler();
         LOGGER.info("Player Trade mod initialized");
     }
 
@@ -82,7 +85,7 @@ public class PlayerTrade implements ModInitializer {
             }
         });
 
-        // Container removed — return items
+        // Container removed: return items
         PandoricalApi.screens().onContainerRemoved(SCREEN_TYPE, (player) -> {
             TradeSession session = TradeManager.getInstance().getTradeSession(player.getUUID());
             if (session != null) {
@@ -121,6 +124,9 @@ public class PlayerTrade implements ModInitializer {
             tradeContainer.setItem(i, session.getSlot(player.getUUID(), i).copy());
             tradeContainer.setItem(i + 9, session.getOtherPlayerOffer(player.getUUID()).get(i).copy());
         }
+        // Track this container so syncTradeToPlayer can rewrite the "Their Offer" slots (9-17)
+        // live as the counterparty changes their offer.
+        session.setDisplayContainer(player.getUUID(), tradeContainer);
 
         String title = Component.translatable("player-trade.screen.title", otherPlayerName).getString();
         ScreenBuilder builder = new ScreenBuilder(SCREEN_TYPE)
@@ -167,7 +173,7 @@ public class PlayerTrade implements ModInitializer {
     }
 
     private static void syncTradeToPlayer(TradeSession session, ServerPlayer player) {
-        String screenId = PandoricalApi.getPlayerScreenId(player.getUUID());
+        String screenId = PandoricalApi.getOpenScreenId(player.getUUID());
         if (screenId == null) return;
 
         boolean youAccepted = session.hasAccepted(player.getUUID());
@@ -187,6 +193,20 @@ public class PlayerTrade implements ModInitializer {
         );
 
         PandoricalApi.screens().update(player, screenId, updates);
+
+        // Refresh the counterparty ("Their Offer") display slots (9-17) from the live session
+        // offer. The trade screen is backed by a real vanilla container, so writing these
+        // server-side slots makes vanilla's per-tick broadcastChanges() push them to the client.
+        // These slots stay read-only for the player; only the server mutates them here, so their
+        // read-only-ness is preserved.
+        Container container = session.getDisplayContainer(player.getUUID());
+        if (container != null) {
+            List<ItemStack> otherOffer = session.getOtherPlayerOffer(player.getUUID());
+            for (int i = 0; i < TradeSession.OFFER_SLOTS; i++) {
+                ItemStack stack = (otherOffer != null) ? otherOffer.get(i) : ItemStack.EMPTY;
+                container.setItem(TradeSession.OFFER_SLOTS + i, stack.copy());
+            }
+        }
     }
 
     private void registerPlayerInteraction() {
@@ -198,6 +218,26 @@ public class PlayerTrade implements ModInitializer {
             if (!player.isShiftKeyDown()) return InteractionResult.PASS;
             TradeManager.getInstance().sendTradeRequest(clickingPlayer, targetPlayer);
             return InteractionResult.SUCCESS;
+        });
+    }
+
+    /**
+     * Return escrowed trade items if a participant disconnects mid-trade.
+     *
+     * Fabric fires ServerPlayConnectionEvents.DISCONNECT from Connection.handleDisconnection()
+     * immediately BEFORE ServerGamePacketListenerImpl.onDisconnect() runs (verified against the
+     * fabric-networking ConnectionMixin: the injection targets the onDisconnect INVOKE with no
+     * shift=AFTER). Since onDisconnect is what triggers PlayerList.remove() -> save(player), the
+     * disconnecting ServerPlayer is still fully in-world here and any items returned to its
+     * inventory are persisted by the subsequent save. Without this, cancelTrade could only reach
+     * online players, so a disconnected party's escrow was destroyed.
+     */
+    private void registerDisconnectHandler() {
+        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
+            ServerPlayer player = handler.getPlayer();
+            if (player != null) {
+                TradeManager.getInstance().handleDisconnect(player, server);
+            }
         });
     }
 

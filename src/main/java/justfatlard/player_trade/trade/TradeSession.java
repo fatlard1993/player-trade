@@ -1,9 +1,13 @@
 package justfatlard.player_trade.trade;
 
+import net.minecraft.util.Prediction;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import net.minecraft.core.NonNullList;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.Container;
 import net.minecraft.world.item.ItemStack;
 
 public class TradeSession {
@@ -16,6 +20,13 @@ public class TradeSession {
     private boolean player2Accepted;
     private final long createdAt;
     private final boolean isServerTrade;
+    /**
+     * The live trade screen container backing each participant's open menu, keyed by player UUID.
+     * Each container's slots 0-8 hold that player's own offer and slots 9-17 the counterparty's
+     * offer ("Their Offer"). Kept here so the counterparty display slots can be rewritten live
+     * when either offer changes (see PlayerTrade.syncTradeToPlayer).
+     */
+    private final Map<UUID, Container> displayContainers = new ConcurrentHashMap<>();
     public static final int OFFER_SLOTS = 9;
     public static final UUID SERVER_UUID = new UUID(0L, 0L);
 
@@ -143,7 +154,7 @@ public class TradeSession {
                 ItemStack stack = offer.get(i);
                 if (!stack.isEmpty()) {
                     if (!player.getInventory().add(stack.copy())) {
-                        player.drop(stack.copy(), false);
+                        player.drop(stack.copy(), false, Prediction.SERVER_ONLY);
                     }
                     offer.set(i, ItemStack.EMPTY);
                 }
@@ -153,6 +164,16 @@ public class TradeSession {
 
     public boolean isServerTrade() {
         return this.isServerTrade;
+    }
+
+    /** Record the trade screen container opened for a participant, so its display slots can be updated later. */
+    public void setDisplayContainer(UUID playerId, Container container) {
+        this.displayContainers.put(playerId, container);
+    }
+
+    /** The trade screen container currently open for a participant, or null if none is tracked. */
+    public Container getDisplayContainer(UUID playerId) {
+        return this.displayContainers.get(playerId);
     }
 
     public void setServerOffer(List<ItemStack> items) {
