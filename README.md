@@ -12,18 +12,14 @@ A Fabric mod that lets players trade items with each other safely, without the r
 - **`/trade accept <player>`** and **`/trade cancel`** commands for responding to and leaving trades
 - **`/server-trade <player> <item> <count> ...`** (operator-only): send a player a preset one-sided offer of up to 9 items, which they can accept or decline through the normal trade screen
 
-## Requirements
-
-Targets the Minecraft, Fabric Loader, and Fabric API versions declared in this mod's `gradle.properties`. Check there for the exact currently-supported version.
-
 ## Pandorical
 
 Player Trade uses Pandorical's `screens()` API to build and drive the trade UI (the item grids, accept/cancel buttons, and live "who's accepted" indicators) entirely server-side. There's no bundled client mod or resource pack. Pandorical must be installed client-side for a player to see or use the trade screen. If a player without Pandorical is sent a trade request and it opens for them, they instead get a chat message telling them Pandorical is required, rather than a broken or missing screen.
 
 ## Installation
 
-Install alongside its declared dependencies (see `fabric.mod.json`).
+Install server-side alongside its declared dependencies (see `fabric.mod.json`); connecting clients need only Pandorical. Version targets live in `gradle.properties` (Minecraft, loader, Fabric API) and `fabric.mod.json` (Java).
 
 ## License
 
-MIT
+MIT, see [LICENSE](LICENSE).
