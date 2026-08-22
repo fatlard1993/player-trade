@@ -16,6 +16,27 @@ repositories {
 }
 
 dependencies {
+	// Optional: block-tip integration, compile-only and never bundled. Resolved by the version
+	// block-tip declares rather than a version written down here, because Gradle never clears
+	// build/libs and a pinned version keeps compiling green against the jar an old build left
+	// behind, long after the API it was written for has moved.
+	def blockTipProperties = file("../block-tip/gradle.properties")
+	if (blockTipProperties.exists()) {
+		def blockTipVersion = new Properties().with {
+			blockTipProperties.withInputStream { load(it) }
+			getProperty("mod_version")
+		}
+		def blockTipJar = file("../block-tip/build/libs/block-tip-${blockTipVersion}.jar")
+		if (!blockTipJar.exists()) {
+			// Said plainly, because the alternative is javac reporting that BlockTipApi does not
+			// exist: the integration below imports it outright, so the jar is only optional at
+			// runtime. A clean, or a fresh clone, leaves this directory empty.
+			throw new GradleException("block-tip ${blockTipVersion} is not built. Run `mc-build block-tip`" +
+				" (or ./gradlew build in ../block-tip) first - this mod compiles against its API.")
+		}
+		compileOnly files(blockTipJar)
+	}
+
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"

@@ -12,6 +12,14 @@ A Fabric mod that lets players trade items with each other safely, without the r
 - **`/trade accept <player>`** and **`/trade cancel`** commands for responding to and leaving trades
 - **`/server-trade <player> <item> <count> ...`** (operator-only): send a player a preset one-sided offer of up to 9 items, which they can accept or decline through the normal trade screen
 
+## Learning It
+
+Shift-right-clicking a person is the mod's only front door, and nothing in the game hints that it does anything. The one place the mod explains itself is chat, which only ever speaks after somebody already knew what to do.
+
+With [block-tip](https://github.com/justfatlard/block-tip) installed, looking at another player says it while you are looking at them: *"Sneak-click to trade"*, or *"Already trading"* when they are mid-trade and the click would only come back as an error.
+
+Optional and guarded: without block-tip the mod behaves exactly as before.
+
 ## Pandorical
 
 Player Trade uses Pandorical's `screens()` API to build and drive the trade UI (the item grids, accept/cancel buttons, and live "who's accepted" indicators) entirely server-side. There's no bundled client mod or resource pack. Pandorical must be installed client-side for a player to see or use the trade screen. If a player without Pandorical is sent a trade request and it opens for them, they instead get a chat message telling them Pandorical is required, rather than a broken or missing screen.

@@ -51,7 +51,20 @@ public class PlayerTrade implements ModInitializer {
         this.registerPlayerInteraction();
         this.registerCommands();
         this.registerDisconnectHandler();
+        this.registerTipIntegration();
         LOGGER.info("Player Trade mod initialized");
+    }
+
+    /**
+     * Tell people how to trade, at the moment they are looking at somebody to trade with.
+     *
+     * <p>Guarded class load: TradeTipRegistration names block-tip types, and block-tip is only
+     * suggested.
+     */
+    private void registerTipIntegration() {
+        if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("block-tip")) {
+            justfatlard.player_trade.integration.TradeTipRegistration.register();
+        }
     }
 
     private void registerPandoricalHandlers() {
