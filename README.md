@@ -16,7 +16,7 @@ A Fabric mod that lets players trade items with each other safely, without the r
 
 Shift-right-clicking a person is the mod's only front door, and nothing in the game hints that it does anything. The one place the mod explains itself is chat, which only ever speaks after somebody already knew what to do.
 
-With [block-tip](https://github.com/justfatlard/block-tip) installed, looking at another player says it while you are looking at them: *"Sneak-click to trade"*, or *"Already trading"* when they are mid-trade and the click would only come back as an error.
+With [block-tip](https://github.com/fatlard1993/block-tip) installed, looking at another player says it while you are looking at them: *"Sneak-click to trade"*, or *"Already trading"* when they are mid-trade and the click would only come back as an error.
 
 Optional and guarded: without block-tip the mod behaves exactly as before.
 
