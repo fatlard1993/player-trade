@@ -106,15 +106,28 @@ public class TradeManager {
         PlayerTrade.openTradeScreen(player2, player1.getName(), session);
     }
 
+    /**
+     * Drop a session from the active maps.
+     *
+     * <p>Must run before any closeContainer() on a participant. Closing the menu fires
+     * Pandorical's container-removed and close callbacks, and those look the player's session up
+     * and cancel whatever they find - so a session still registered at close time gets cancelled
+     * by the very act of finishing it, and the player is told the trade completed and then that it
+     * was cancelled.
+     */
+    private void endSession(TradeSession session) {
+        this.activeTrades.remove(session.getSessionId());
+        this.playerToSession.remove(session.getPlayer1Id());
+        this.playerToSession.remove(session.getPlayer2Id());
+    }
+
     public void cancelTrade(UUID playerId, MinecraftServer server) {
         TradeSession session = this.getTradeSession(playerId);
         if (session != null) {
             if (session.isServerTrade()) {
                 this.cancelServerTrade(playerId, server);
             } else {
-                this.activeTrades.remove(session.getSessionId());
-                this.playerToSession.remove(session.getPlayer1Id());
-                this.playerToSession.remove(session.getPlayer2Id());
+                this.endSession(session);
                 ServerPlayer player1 = server.getPlayerList().getPlayer(session.getPlayer1Id());
                 ServerPlayer player2 = server.getPlayerList().getPlayer(session.getPlayer2Id());
                 if (player1 != null) {
@@ -151,15 +164,12 @@ public class TradeManager {
         if (session.isServerTrade()) {
             // Server trades: only player1 is a real player. Tear down and return its escrow
             // directly (normally empty, since the player's own slots are read-only in a gift trade).
-            this.activeTrades.remove(session.getSessionId());
-            this.playerToSession.remove(session.getPlayer1Id());
+            this.endSession(session);
             session.returnItemsToPlayer(player);
             return;
         }
         // Player-to-player trade: tear down mappings first so no further action re-enters.
-        this.activeTrades.remove(session.getSessionId());
-        this.playerToSession.remove(session.getPlayer1Id());
-        this.playerToSession.remove(session.getPlayer2Id());
+        this.endSession(session);
 
         // Return the disconnecting player's escrow using its still-valid direct reference,
         // rather than a player-list lookup (which is being torn down as part of this disconnect).
@@ -197,13 +207,11 @@ public class TradeManager {
                     session.getPlayerOffer(player2.getUUID()).set(i, ItemStack.EMPTY);
                 }
 
+                this.endSession(session);
                 player1.sendSystemMessage(Component.translatable("player-trade.chat.trade_complete").withStyle(ChatFormatting.GREEN));
                 player2.sendSystemMessage(Component.translatable("player-trade.chat.trade_complete").withStyle(ChatFormatting.GREEN));
                 player1.closeContainer();
                 player2.closeContainer();
-                this.activeTrades.remove(session.getSessionId());
-                this.playerToSession.remove(session.getPlayer1Id());
-                this.playerToSession.remove(session.getPlayer2Id());
                 return true;
             } else {
                 player1.sendSystemMessage(Component.translatable("player-trade.chat.inventory_full").withStyle(ChatFormatting.RED));
@@ -311,10 +319,9 @@ public class TradeManager {
                     session.getPlayerOffer(TradeSession.SERVER_UUID).set(i, ItemStack.EMPTY);
                 }
 
+                this.endSession(session);
                 player.sendSystemMessage(Component.translatable("player-trade.chat.trade_complete").withStyle(ChatFormatting.GREEN));
                 player.closeContainer();
-                this.activeTrades.remove(session.getSessionId());
-                this.playerToSession.remove(session.getPlayer1Id());
                 return true;
             }
         } else {
@@ -325,8 +332,7 @@ public class TradeManager {
     public void cancelServerTrade(UUID playerId, MinecraftServer server) {
         TradeSession session = this.getTradeSession(playerId);
         if (session != null && session.isServerTrade()) {
-            this.activeTrades.remove(session.getSessionId());
-            this.playerToSession.remove(session.getPlayer1Id());
+            this.endSession(session);
             ServerPlayer player = server.getPlayerList().getPlayer(session.getPlayer1Id());
             if (player != null) {
                 session.returnItemsToPlayer(player);

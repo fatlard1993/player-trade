@@ -5,11 +5,9 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 import justfatlard.pandorical.api.PandoricalApi;
-import justfatlard.pandorical.api.ScreenBuilder;
-import justfatlard.pandorical.protocol.ComponentUpdate;
+import justfatlard.player_trade.screen.TradeScreen;
 import justfatlard.player_trade.trade.TradeManager;
 import justfatlard.player_trade.trade.TradeSession;
 import net.fabricmc.api.ModInitializer;
@@ -28,16 +26,13 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Container;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
-import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.item.ItemStack;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Set;
 
 public class PlayerTrade implements ModInitializer {
     public static final String MOD_ID = "player-trade";
-    public static final String SCREEN_TYPE = "player-trade";
     public static final Logger LOGGER = LoggerFactory.getLogger("player-trade");
 
     public static Identifier id(String path) {
@@ -69,7 +64,7 @@ public class PlayerTrade implements ModInitializer {
 
     private void registerPandoricalHandlers() {
         // Accept button toggles acceptance
-        PandoricalApi.screens().onAction(SCREEN_TYPE, "accept_btn", (player, data) -> {
+        PandoricalApi.screens().onAction(TradeScreen.SCREEN_TYPE, TradeScreen.ACCEPT_BTN, (player, data) -> {
             TradeSession session = TradeManager.getInstance().getTradeSession(player.getUUID());
             if (session != null) {
                 boolean newState = !session.hasAccepted(player.getUUID());
@@ -82,12 +77,12 @@ public class PlayerTrade implements ModInitializer {
         });
 
         // Cancel button cancels trade
-        PandoricalApi.screens().onAction(SCREEN_TYPE, "cancel_btn", (player, data) -> {
+        PandoricalApi.screens().onAction(TradeScreen.SCREEN_TYPE, TradeScreen.CANCEL_BTN, (player, data) -> {
             TradeManager.getInstance().cancelTrade(player.getUUID(), ((net.minecraft.server.level.ServerLevel) player.level()).getServer());
         });
 
         // Slot changes sync to session
-        PandoricalApi.screens().onSlotChange(SCREEN_TYPE, (player, slotIndex, stack) -> {
+        PandoricalApi.screens().onSlotChange(TradeScreen.SCREEN_TYPE, (player, slotIndex, stack) -> {
             TradeSession session = TradeManager.getInstance().getTradeSession(player.getUUID());
             if (session != null) {
                 // Only sync "your offer" slots (0-8)
@@ -99,7 +94,7 @@ public class PlayerTrade implements ModInitializer {
         });
 
         // Container removed: return items
-        PandoricalApi.screens().onContainerRemoved(SCREEN_TYPE, (player) -> {
+        PandoricalApi.screens().onContainerRemoved(TradeScreen.SCREEN_TYPE, (player) -> {
             TradeSession session = TradeManager.getInstance().getTradeSession(player.getUUID());
             if (session != null) {
                 session.returnItemsToPlayer(player);
@@ -108,7 +103,7 @@ public class PlayerTrade implements ModInitializer {
         });
 
         // Screen close (from ScreenActionC2S "close")
-        PandoricalApi.screens().onClose(SCREEN_TYPE, (player) -> {
+        PandoricalApi.screens().onClose(TradeScreen.SCREEN_TYPE, (player) -> {
             TradeManager.getInstance().cancelTrade(player.getUUID(), ((net.minecraft.server.level.ServerLevel) player.level()).getServer());
         });
     }
@@ -121,58 +116,7 @@ public class PlayerTrade implements ModInitializer {
             player.sendSystemMessage(Component.literal("Trade requires Pandorical mod on client.").withStyle(ChatFormatting.RED));
             return;
         }
-
-        boolean isServerTrade = session.isServerTrade();
-        // "Your offer" = slots 0-8, "Their offer" = slots 9-17
-        // Read-only: their offer always. Your offer if server trade.
-        Set<Integer> readOnly = new java.util.HashSet<>();
-        for (int i = 9; i < 18; i++) readOnly.add(i); // their offer always read-only
-        if (isServerTrade) {
-            for (int i = 0; i < 9; i++) readOnly.add(i); // your offer read-only in server trade
-        }
-
-        // Build the container with pre-populated items
-        SimpleContainer tradeContainer = new SimpleContainer(18);
-        for (int i = 0; i < 9; i++) {
-            tradeContainer.setItem(i, session.getSlot(player.getUUID(), i).copy());
-            tradeContainer.setItem(i + 9, session.getOtherPlayerOffer(player.getUUID()).get(i).copy());
-        }
-        // Track this container so syncTradeToPlayer can rewrite the "Their Offer" slots (9-17)
-        // live as the counterparty changes their offer.
-        session.setDisplayContainer(player.getUUID(), tradeContainer);
-
-        String title = Component.translatable("player-trade.screen.title", otherPlayerName).getString();
-        ScreenBuilder builder = new ScreenBuilder(SCREEN_TYPE)
-            .size(176, 176)
-            .title(title)
-            .container(18, true)
-            // Background panel
-            .panel("bg", 0, 0, 176, 176, Map.of("border", "beveled"))
-            // Title bar
-            .text("title", 7, 6, Map.of("text", title, "color", "#404040"))
-            .button("cancel_btn", 126, 4, 45, 12,
-                Map.of("label_key", "player-trade.screen.cancel"))
-            // Your offer section
-            .text("your_label", 16, 20, Map.of("text", "Your Offer", "color", "#404040"))
-            .inventoryGrid("your_grid", 8, 30, 3, 3, 0)
-            // Divider
-            .sprite("divider", 85, 30, 6, 54, Map.of("color", "#555555"))
-            // Their offer section
-            .text("their_label", 100, 20, Map.of("text", "Their Offer", "color", "#404040"))
-            .inventoryGrid("their_grid", 98, 30, 3, 3, 9)
-            // Accept button + indicators
-            .button("accept_btn", 68, 68, 40, 20,
-                Map.of("label_key", "player-trade.screen.accept"))
-            .sprite("your_indicator", 35, 86, 10, 10, Map.of("color", "#AA0000"))
-            .sprite("their_indicator", 131, 86, 10, 10, Map.of("color", "#AA0000"))
-            .text("your_ind_label", 33, 98, Map.of("text", "You", "color", "#404040"))
-            .text("their_ind_label", 127, 98, Map.of("text", "Them", "color", "#404040"))
-            // Player inventory
-            .inventoryGrid("player_inv", 8, 94, 3, 9, 18)
-            // Hotbar
-            .inventoryGrid("hotbar", 8, 152, 1, 9, 45);
-
-        PandoricalApi.screens().openContainer(player, builder.build(), tradeContainer, readOnly);
+        TradeScreen.open(player, otherPlayerName, session);
     }
 
     /**
@@ -189,28 +133,12 @@ public class PlayerTrade implements ModInitializer {
         String screenId = PandoricalApi.getOpenScreenId(player.getUUID());
         if (screenId == null) return;
 
-        boolean youAccepted = session.hasAccepted(player.getUUID());
-        boolean theyAccepted = session.hasOtherAccepted(player.getUUID());
+        PandoricalApi.screens().update(player, screenId, TradeScreen.stateUpdates(session, player));
 
-        List<ComponentUpdate> updates = List.of(
-            new ComponentUpdate("accept_btn", Map.of(
-                "label_key", youAccepted ? "player-trade.screen.accepted" : "player-trade.screen.accept",
-                "style", youAccepted ? "accepted" : "default"
-            )),
-            new ComponentUpdate("your_indicator", Map.of(
-                "color", youAccepted ? "#00AA00" : "#AA0000"
-            )),
-            new ComponentUpdate("their_indicator", Map.of(
-                "color", theyAccepted ? "#00AA00" : "#AA0000"
-            ))
-        );
-
-        PandoricalApi.screens().update(player, screenId, updates);
-
-        // Refresh the counterparty ("Their Offer") display slots (9-17) from the live session
-        // offer. The trade screen is backed by a real vanilla container, so writing these
-        // server-side slots makes vanilla's per-tick broadcastChanges() push them to the client.
-        // These slots stay read-only for the player; only the server mutates them here, so their
+        // Refresh the counterparty ("You get") display slots (9-17) from the live session offer.
+        // The trade screen is backed by a real vanilla container, so writing these server-side
+        // slots makes vanilla's per-tick broadcastChanges() push them to the client. These slots
+        // stay read-only for the player; only the server mutates them here, so their
         // read-only-ness is preserved.
         Container container = session.getDisplayContainer(player.getUUID());
         if (container != null) {

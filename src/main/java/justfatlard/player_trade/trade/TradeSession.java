@@ -27,6 +27,8 @@ public class TradeSession {
      * when either offer changes (see PlayerTrade.syncTradeToPlayer).
      */
     private final Map<UUID, Container> displayContainers = new ConcurrentHashMap<>();
+    /** Counterparty display name per participant, for the screen's status line. */
+    private final Map<UUID, String> counterpartyNames = new ConcurrentHashMap<>();
     public static final int OFFER_SLOTS = 9;
     public static final UUID SERVER_UUID = new UUID(0L, 0L);
 
@@ -174,6 +176,20 @@ public class TradeSession {
     /** The trade screen container currently open for a participant, or null if none is tracked. */
     public Container getDisplayContainer(UUID playerId) {
         return this.displayContainers.get(playerId);
+    }
+
+    /**
+     * Record who the screen says a participant is trading with, so later screen updates can name
+     * them. Captured when the screen opens rather than looked up per update: the counterparty may
+     * already be gone from the player list by the time the last update goes out.
+     */
+    public void setCounterpartyName(UUID playerId, String name) {
+        this.counterpartyNames.put(playerId, name);
+    }
+
+    /** The counterparty's display name for a participant's screen. */
+    public String getCounterpartyName(UUID playerId) {
+        return this.counterpartyNames.getOrDefault(playerId, "");
     }
 
     public void setServerOffer(List<ItemStack> items) {
