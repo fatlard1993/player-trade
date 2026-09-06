@@ -5,8 +5,10 @@ A Fabric mod that lets players trade items with each other safely, without the r
 ## Features
 
 - **Player-to-player trading**: shift-right-click another player to send a trade request; a clickable chat prompt lets them accept
+- **Shift-clicking back accepts**: offering a trade to somebody who has just offered you one starts the trade rather than sending a second request. Two people reaching for each other at once is the ordinary way this happens, and both waiting on an offer the other already made is nobody's idea of a handshake
 - **Synced trade screen**: both players see each other's offered items update live as slots change
 - **Mutual acceptance required**: items only change hands once both sides accept; accepting again un-accepts if the offer changes
+- **Request spam is capped**: a request already standing at somebody cannot be re-sent at them, and there is a short pause between asking different people. Shift-click is a gesture people repeat without meaning to, and every repeat used to be another line in the target's chat
 - **Safe cancellation**: closing the screen, disconnecting, or explicitly cancelling returns all offered items to their owner
 - **Inventory-full protection**: a trade won't complete if either player lacks the space to receive their side of the deal
 - **`/trade accept <player>`** and **`/trade cancel`** commands for responding to and leaving trades
@@ -24,9 +26,9 @@ Optional and guarded: without block-tip the mod behaves exactly as before.
 
 Player Trade uses Pandorical's `screens()` API to build and drive the trade UI (the item grids, accept/cancel buttons, and live "who's accepted" indicators) entirely server-side. There's no bundled client mod or resource pack. Pandorical must be installed client-side for a player to see or use the trade screen. If a player without Pandorical is sent a trade request and it opens for them, they instead get a chat message telling them Pandorical is required, rather than a broken or missing screen.
 
-## Installation
+## Development
 
-Install server-side alongside its declared dependencies (see `fabric.mod.json`); connecting clients need only Pandorical. Version targets live in `gradle.properties` (Minecraft, loader, Fabric API) and `fabric.mod.json` (Java).
+Installing is in [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## License
 

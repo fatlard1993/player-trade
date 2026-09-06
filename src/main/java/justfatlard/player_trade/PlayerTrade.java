@@ -13,6 +13,7 @@ import justfatlard.player_trade.trade.TradeSession;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.player.UseEntityCallback;
+import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
@@ -22,6 +23,7 @@ import net.minecraft.commands.arguments.item.ItemArgument;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Container;
 import net.minecraft.world.InteractionHand;
@@ -46,6 +48,7 @@ public class PlayerTrade implements ModInitializer {
         this.registerPlayerInteraction();
         this.registerCommands();
         this.registerDisconnectHandler();
+        this.registerDeathHandler();
         this.registerTipIntegration();
         LOGGER.info("Player Trade mod initialized");
     }
@@ -179,6 +182,23 @@ public class PlayerTrade implements ModInitializer {
             if (player != null) {
                 TradeManager.getInstance().handleDisconnect(player, server);
             }
+        });
+    }
+
+    /**
+     * Give a dying player their escrow back while they can still hold it.
+     *
+     * <p>Fabric fires ALLOW_DEATH from {@code LivingEntity.hurtServer}, at the point the game asks
+     * whether the blow was fatal and before {@code die()} empties the player's pockets onto the
+     * ground. That ordering is the whole reason this is the hook: items handed back here are in the
+     * inventory in time to be treated like everything else the player was carrying.
+     */
+    private void registerDeathHandler() {
+        ServerLivingEntityEvents.ALLOW_DEATH.register((entity, source, amount) -> {
+            if (entity instanceof ServerPlayer player && player.level() instanceof ServerLevel level) {
+                TradeManager.getInstance().handleDeath(player, level.getServer());
+            }
+            return true;
         });
     }
 

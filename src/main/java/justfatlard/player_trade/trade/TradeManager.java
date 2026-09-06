@@ -21,6 +21,11 @@ public class TradeManager {
     private final Map<UUID, UUID> playerToSession = new ConcurrentHashMap<>();
     private final Map<UUID, TradeRequest> pendingRequests = new ConcurrentHashMap<>();
     private final Map<UUID, List<ItemStack>> pendingServerItems = new ConcurrentHashMap<>();
+    /** When each player last had a request actually go out; see {@link #tooSoon}. */
+    private final Map<UUID, Long> lastRequestSent = new ConcurrentHashMap<>();
+
+    /** How long after sending one request a player must wait before sending another to anybody. */
+    private static final long REQUEST_COOLDOWN_MS = 3000L;
 
     public static TradeManager getInstance() {
         if (instance == null) {
@@ -47,9 +52,48 @@ public class TradeManager {
             sender.sendSystemMessage(
                 Component.translatable("player-trade.chat.player_busy", target.getName()).withStyle(ChatFormatting.RED)
             );
+        } else if (this.offeredUs(senderId, targetId)) {
+            // They asked first and we asked back: that is agreement, not a second offer. Two
+            // people reaching for the same thing at once is the ordinary way this happens - the
+            // request has a thirty second life and a chat button that is easy to miss - and the
+            // old behaviour left each of them holding an unanswered offer from the other,
+            // waiting on somebody who was already waiting on them.
+            this.pendingRequests.remove(senderId);
+            sender.sendSystemMessage(
+                Component.translatable("player-trade.chat.mutual_accept", target.getName())
+                    .withStyle(ChatFormatting.GREEN)
+            );
+            target.sendSystemMessage(
+                Component.translatable("player-trade.chat.mutual_accept", sender.getName())
+                    .withStyle(ChatFormatting.GREEN)
+            );
+            // Target first: they are the one whose request is being answered, which is the order
+            // accepting from chat would have produced
+            this.startTrade(target, sender);
+        } else if (this.alreadyAsked(senderId, targetId)) {
+            // The request is already standing. Shift-click is a gesture people repeat without
+            // meaning to - it is half the controls in the game - and every repeat used to put
+            // another line in the target's chat. Said on the action bar rather than in chat, so
+            // a fistful of clicks does not fill the clicker's own log either.
+            sender.sendSystemMessage(
+                Component.translatable("player-trade.chat.request_pending",
+                    target.getName(), this.secondsLeft(targetId)).withStyle(ChatFormatting.GRAY),
+                true
+            );
+        } else if (this.tooSoon(senderId)) {
+            // And the same click aimed around a room: the rule above allows one request per
+            // target at a time, this is the one that stops a crowd being worked through at
+            // click speed. Never reached by the accept branch above - answering somebody who
+            // asked you is not spam, whatever you were clicking a moment ago.
+            sender.sendSystemMessage(
+                Component.translatable("player-trade.chat.request_too_fast")
+                    .withStyle(ChatFormatting.GRAY),
+                true
+            );
         } else {
             TradeRequest request = new TradeRequest(senderId, targetId, System.currentTimeMillis());
             this.pendingRequests.put(targetId, request);
+            this.lastRequestSent.put(senderId, request.timestamp());
             sender.sendSystemMessage(
                 Component.translatable("player-trade.chat.request_sent", target.getName()).withStyle(ChatFormatting.GREEN)
             );
@@ -66,6 +110,45 @@ public class TradeManager {
                 .append(acceptButton);
             target.sendSystemMessage(message);
         }
+    }
+
+    /**
+     * Whether {@code target} has a live request in to {@code sender} right now.
+     *
+     * <p>Requests are keyed by who they are addressed to, so ours is the one filed under our own
+     * id. An expired one does not count and is left where it is for the sweeper; the server's own
+     * offers never match, since {@link TradeSession#SERVER_UUID} is nobody's player id, so
+     * offering a trade to someone cannot swallow a gift the server is holding out to you.
+     */
+    private boolean offeredUs(UUID senderId, UUID targetId) {
+        TradeRequest incoming = this.pendingRequests.get(senderId);
+        return incoming != null && !incoming.isExpired() && incoming.senderId().equals(targetId);
+    }
+
+    /** Whether the request we are about to send is one we already have standing to this player. */
+    private boolean alreadyAsked(UUID senderId, UUID targetId) {
+        TradeRequest standing = this.pendingRequests.get(targetId);
+        return standing != null && !standing.isExpired() && standing.senderId().equals(senderId);
+    }
+
+    /** Seconds left on the request standing against this target, for telling the sender to wait. */
+    private long secondsLeft(UUID targetId) {
+        TradeRequest standing = this.pendingRequests.get(targetId);
+        if (standing == null) return 0;
+        long remaining = standing.timestamp() + TradeRequest.EXPIRATION_MS - System.currentTimeMillis();
+        return Math.max(1, (remaining + 999) / 1000);
+    }
+
+    /**
+     * Whether this player has sent a request too recently to send another.
+     *
+     * <p>Only bites across different targets, because a repeat at the same one is already stopped
+     * by {@link #alreadyAsked}. Short on purpose: it is here to stop a room being worked through
+     * at the speed a mouse can be clicked, not to make asking twice a punishment.
+     */
+    private boolean tooSoon(UUID senderId) {
+        Long last = this.lastRequestSent.get(senderId);
+        return last != null && System.currentTimeMillis() - last < REQUEST_COOLDOWN_MS;
     }
 
     public void acceptTradeRequest(ServerPlayer acceptor, String senderName, MinecraftServer server) {
@@ -155,8 +238,32 @@ public class TradeManager {
      * online) gets its items back too. returnItemsToPlayer falls back to dropping at the player's
      * position if the inventory is full, so no path can lose items.
      */
+    /**
+     * Hand a dying player their escrow back before the world takes their pockets.
+     *
+     * <p>Dying mid-trade destroyed the escrow outright. The screen closing on death ran the same
+     * teardown a cancel does, which puts the offered items into the player's inventory - and that
+     * inventory was on its way to being emptied onto the ground and replaced. The items went into
+     * a corpse and never came out.
+     *
+     * <p>Called before the death is processed, so the escrow is in the player's own inventory by
+     * the time the game decides what happens to it: it drops with everything else they were
+     * carrying, or survives with them under keepInventory. Either way it obeys the same rule as the
+     * rest of their things, which is the only answer that will not surprise anybody.
+     *
+     * <p>The counterparty, who did not die, simply gets theirs back as with any other cancel.
+     */
+    public void handleDeath(ServerPlayer player, MinecraftServer server) {
+        // Same shape as a disconnect: tear the session down before returning anything, so nothing
+        // can re-enter through the screen closing a moment later and hand the escrow out twice.
+        this.handleDisconnect(player, server);
+    }
+
     public void handleDisconnect(ServerPlayer player, MinecraftServer server) {
         UUID playerId = player.getUUID();
+        // Above the session check, which returns early for the great majority of disconnects:
+        // nothing else prunes this map, and a leaving player is owed no cooldown anyway
+        this.lastRequestSent.remove(playerId);
         TradeSession session = this.getTradeSession(playerId);
         if (session == null) {
             return;
