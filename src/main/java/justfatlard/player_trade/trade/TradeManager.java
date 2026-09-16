@@ -43,9 +43,32 @@ public class TradeManager {
         return sessionId == null ? null : this.activeTrades.get(sessionId);
     }
 
+    /**
+     * Whether this player's game can show the trade screen. A session with somebody who cannot
+     * would leave them both "in a trade" that nobody can see or finish.
+     */
+    private static boolean canShow(ServerPlayer player) {
+        return justfatlard.pandorical.api.PandoricalApi.hasCapability(player, "screens");
+    }
+
+    private static boolean bothCanShow(ServerPlayer asking, ServerPlayer other) {
+        if (!canShow(asking)) {
+            asking.sendSystemMessage(Component.translatableWithFallback("player-trade.chat.needs_pandorical_self",
+                "Trading needs the Pandorical mod on your game.").withStyle(ChatFormatting.RED));
+            return false;
+        }
+        if (!canShow(other)) {
+            asking.sendSystemMessage(Component.translatableWithFallback("player-trade.chat.needs_pandorical_other",
+                "%s can't trade: their game doesn't have the Pandorical mod.", other.getName()).withStyle(ChatFormatting.RED));
+            return false;
+        }
+        return true;
+    }
+
     public void sendTradeRequest(ServerPlayer sender, ServerPlayer target) {
         UUID senderId = sender.getUUID();
         UUID targetId = target.getUUID();
+        if (!bothCanShow(sender, target)) return;
         if (this.isInTrade(senderId)) {
             sender.sendSystemMessage(Component.translatable("player-trade.chat.already_trading").withStyle(ChatFormatting.RED));
         } else if (this.isInTrade(targetId)) {
@@ -172,6 +195,10 @@ public class TradeManager {
                         );
                         this.pendingRequests.remove(acceptorId);
                     }
+                } else {
+                    // The request stands; it is from somebody else.
+                    acceptor.sendSystemMessage(Component.translatableWithFallback("player-trade.chat.not_from",
+                        "No trade request from %s. Yours is from %s.", senderName, sender.getName()).withStyle(ChatFormatting.RED));
                 }
             }
         } else {
@@ -181,6 +208,7 @@ public class TradeManager {
     }
 
     public void startTrade(ServerPlayer player1, ServerPlayer player2) {
+        if (!bothCanShow(player2, player1) || !bothCanShow(player1, player2)) return;
         TradeSession session = new TradeSession(player1.getUUID(), player2.getUUID());
         this.activeTrades.put(session.getSessionId(), session);
         this.playerToSession.put(player1.getUUID(), session.getSessionId());
@@ -402,6 +430,11 @@ public class TradeManager {
     }
 
     public void startServerTrade(ServerPlayer player, List<ItemStack> items) {
+        if (!canShow(player)) {
+            player.sendSystemMessage(Component.translatableWithFallback("player-trade.chat.needs_pandorical_self",
+                "Trading needs the Pandorical mod on your game.").withStyle(ChatFormatting.RED));
+            return;
+        }
         TradeSession session = new TradeSession(player.getUUID(), TradeSession.SERVER_UUID, true);
         session.setServerOffer(items);
         this.activeTrades.put(session.getSessionId(), session);
