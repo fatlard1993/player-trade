@@ -356,21 +356,59 @@ public class TradeManager {
         }
     }
 
+    /**
+     * Whether everything offered would actually go in.
+     *
+     * <p>This used to count empty slots against the number of stacks offered, which asks a
+     * different question: it says a player with a full bag has no room for a single cobblestone
+     * even when eight of their slots are cobblestone with space on top. {@link #transferItems}
+     * puts items in with {@code Inventory#add}, which fills partial stacks before it takes a slot,
+     * so the check has to reckon it the same way or it refuses trades the game would have
+     * managed.
+     *
+     * <p>Room is tracked per slot rather than as one total, because two offered stacks of the same
+     * thing cannot both be promised the same gap. Partial stacks are filled first, then whole
+     * slots, which is the order the real insertion uses.
+     *
+     * <p>On a server running stackz this matters far more than it looks: a stack there holds
+     * millions, so nearly any matching item in the bag has room for the lot, and the old count
+     * was refusing trades that had no chance of failing.
+     */
     private boolean canReceiveItems(ServerPlayer player, List<ItemStack> items) {
-        int emptySlots = 0;
+        ItemStack[] held = new ItemStack[36];
+        int[] room = new int[36];
+        int freeSlots = 0;
         for (int i = 0; i < 36; i++) {
-            if (player.getInventory().getItem(i).isEmpty()) {
-                emptySlots++;
+            ItemStack inSlot = player.getInventory().getItem(i);
+            if (inSlot.isEmpty()) {
+                freeSlots++;
+                continue;
             }
+            held[i] = inSlot;
+            room[i] = Math.max(0, inSlot.getMaxStackSize() - inSlot.getCount());
         }
 
-        int nonEmptyItems = 0;
-        for (ItemStack stack : items) {
-            if (!stack.isEmpty()) {
-                nonEmptyItems++;
+        for (ItemStack offered : items) {
+            if (offered.isEmpty()) continue;
+            int left = offered.getCount();
+
+            if (offered.isStackable()) {
+                for (int i = 0; i < 36 && left > 0; i++) {
+                    if (held[i] == null || room[i] <= 0) continue;
+                    if (!ItemStack.isSameItemSameComponents(held[i], offered)) continue;
+                    int fits = Math.min(room[i], left);
+                    room[i] -= fits;
+                    left -= fits;
+                }
             }
+
+            while (left > 0 && freeSlots > 0) {
+                freeSlots--;
+                left -= Math.min(left, offered.getMaxStackSize());
+            }
+            if (left > 0) return false;
         }
-        return emptySlots >= nonEmptyItems;
+        return true;
     }
 
     private void transferItems(ServerPlayer player, List<ItemStack> items) {
