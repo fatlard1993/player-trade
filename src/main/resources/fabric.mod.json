@@ -4,13 +4,21 @@
 	"version": "${version}",
 	"name": "Player Trade",
 	"description": "Adds a player-to-player trading system",
-	"authors": ["justfatlard"],
-	"contact": {},
+	"authors": [
+		"justfatlard"
+	],
+	"contact": {
+		"homepage": "https://github.com/fatlard1993/player-trade",
+		"sources": "https://github.com/fatlard1993/player-trade",
+		"issues": "https://github.com/fatlard1993/player-trade/issues"
+	},
 	"license": "MIT",
 	"icon": "assets/player-trade/icon.png",
 	"environment": "*",
 	"entrypoints": {
-		"main": ["justfatlard.player_trade.PlayerTrade"]
+		"main": [
+			"justfatlard.player_trade.PlayerTrade"
+		]
 	},
 	"depends": {
 		"fabricloader": ">=${loaderVersion}",
