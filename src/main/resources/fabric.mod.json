@@ -17,7 +17,7 @@
 		"fabric-api": "${fabricApiVersion}",
 		"minecraft": "${minecraftDependency}",
 		"java": ">=25",
-		"pandorical": ">=1.0.0"
+		"pandorical": ">=15.0.0"
 	},
 	"suggests": {
 		"block-tip": ">=1.0.0"

@@ -45,6 +45,7 @@ public class PlayerTrade implements ModInitializer {
     public void onInitialize() {
         LOGGER.info("Initializing Player Trade mod");
         this.registerPandoricalHandlers();
+        TradeManager.getInstance().listen();
         this.registerPlayerInteraction();
         this.registerCommands();
         this.registerDisconnectHandler();

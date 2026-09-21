@@ -1,0 +1,19 @@
+{
+	"overview": [
+		"Trade items with another player without the risk of a drop-and-grab. Both sides watch the offer build, and nothing changes hands until both accept."
+	],
+	"versions": {
+		"1.2.0": [
+			"A trade offer now arrives in the notice tray with Accept and Decline on it. Chat only ever carried one [Accept], so turning an offer down meant ignoring it until it lapsed; now saying no is an answer, and the person who asked is told so."
+		],
+		"1.1.1": [
+			"A trade is no longer turned down for want of room when your bag holds part-full stacks that would have taken the offer anyway."
+		],
+		"1.1.0": [
+			"A trade only starts when both games can actually draw the screen, and accepting now names whose request you are answering. Redrawn icon."
+		],
+		"1.0.0": [
+			"Shift-right-click a player to offer a trade, and a synced screen shows each side's offer as it changes. Items are held in escrow and come back if somebody disconnects, and an operator can push a one-sided server offer at a player through the same screen."
+		]
+	}
+}

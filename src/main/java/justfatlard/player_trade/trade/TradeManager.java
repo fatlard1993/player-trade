@@ -2,15 +2,14 @@ package justfatlard.player_trade.trade;
 
 import net.minecraft.util.Prediction;
 import java.util.List;
+import justfatlard.pandorical.api.NoticeApi;
+import justfatlard.pandorical.api.PandoricalApi;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import justfatlard.player_trade.PlayerTrade;
 import net.minecraft.ChatFormatting;
-import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.HoverEvent;
-import net.minecraft.network.chat.Style;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
@@ -120,18 +119,14 @@ public class TradeManager {
             sender.sendSystemMessage(
                 Component.translatable("player-trade.chat.request_sent", target.getName()).withStyle(ChatFormatting.GREEN)
             );
-            Component acceptButton = Component.translatable("player-trade.chat.accept_button")
-                .setStyle(
-                    Style.EMPTY
-                        .withColor(ChatFormatting.GREEN)
-                        .withBold(true)
-                        .withClickEvent(new ClickEvent.RunCommand("/trade accept " + sender.getName().getString()))
-                        .withHoverEvent(new HoverEvent.ShowText(Component.literal("Click to accept trade")))
-                );
-            Component message = Component.translatable("player-trade.chat.trade_request", sender.getName())
-                .withStyle(ChatFormatting.YELLOW)
-                .append(acceptButton);
-            target.sendSystemMessage(message);
+            // Asked in the tray. In chat this was one [Accept] and nothing else: saying no meant
+            // ignoring it until it timed out, which is not an answer, it is waiting.
+            PandoricalApi.notices().offer(target, new NoticeApi.Notice(
+                noticeId(senderId), NOTICE_KIND, "minecraft:emerald",
+                Component.translatable("player-trade.chat.trade_request", sender.getName()).getString(),
+                List.of(new NoticeApi.Choice("accept", "minecraft:emerald", "Accept"),
+                    new NoticeApi.Choice("decline", "minecraft:barrier", "Decline")),
+                (int) (TradeRequest.EXPIRATION_MS / 1000L)));
         }
     }
 
@@ -172,6 +167,43 @@ public class TradeManager {
     private boolean tooSoon(UUID senderId) {
         Long last = this.lastRequestSent.get(senderId);
         return last != null && System.currentTimeMillis() - last < REQUEST_COOLDOWN_MS;
+    }
+
+    public static final String NOTICE_KIND = "player-trade:request";
+
+    /** One question per asker, so asking twice replaces rather than stacks. */
+    private static String noticeId(UUID senderId) {
+        return "trade-" + senderId;
+    }
+
+    /**
+     * Answers coming back from the tray.
+     *
+     * <p>Registered once at init: the handler is per kind, not per request.
+     */
+    public void listen() {
+        PandoricalApi.notices().onChoice(NOTICE_KIND, (player, noticeId, choiceId) -> {
+            TradeRequest request = this.pendingRequests.get(player.getUUID());
+            if (request == null || request.isExpired()) return;
+            MinecraftServer server = player.level().getServer();
+            boolean fromServer = request.senderId().equals(TradeSession.SERVER_UUID);
+            ServerPlayer sender = fromServer ? null : server.getPlayerList().getPlayer(request.senderId());
+            if ("accept".equals(choiceId)) {
+                // The two kinds of offer are accepted by different paths; a server's has no player
+                // behind it to look up, which is why it needs asking about rather than assuming.
+                if (fromServer) acceptServerTradeRequest(player, server);
+                else if (sender != null) acceptTradeRequest(player, sender.getName().getString(), server);
+                return;
+            }
+            // Declining, which chat never offered: the request goes, and the asker is told rather
+            // than left watching a timeout they cannot tell from someone being away from the keyboard.
+            this.pendingRequests.remove(player.getUUID());
+            this.pendingServerItems.remove(player.getUUID());
+            if (sender != null) {
+                sender.sendSystemMessage(Component.translatable("player-trade.chat.request_declined",
+                    player.getName()).withStyle(ChatFormatting.GRAY));
+            }
+        });
     }
 
     public void acceptTradeRequest(ServerPlayer acceptor, String senderName, MinecraftServer server) {
@@ -429,18 +461,12 @@ public class TradeManager {
             TradeRequest request = new TradeRequest(TradeSession.SERVER_UUID, targetId, System.currentTimeMillis());
             this.pendingRequests.put(targetId, request);
             this.pendingServerItems.put(targetId, items);
-            Component acceptButton = Component.translatable("player-trade.chat.accept_button")
-                .setStyle(
-                    Style.EMPTY
-                        .withColor(ChatFormatting.GREEN)
-                        .withBold(true)
-                        .withClickEvent(new ClickEvent.RunCommand("/trade accept Server"))
-                        .withHoverEvent(new HoverEvent.ShowText(Component.literal("Click to accept trade")))
-                );
-            Component message = Component.translatable("player-trade.chat.server_trade_request")
-                .withStyle(ChatFormatting.GOLD)
-                .append(acceptButton);
-            target.sendSystemMessage(message);
+            PandoricalApi.notices().offer(target, new NoticeApi.Notice(
+                noticeId(TradeSession.SERVER_UUID), NOTICE_KIND, "minecraft:chest",
+                Component.translatable("player-trade.chat.server_trade_request").getString(),
+                List.of(new NoticeApi.Choice("accept", "minecraft:emerald", "Accept"),
+                    new NoticeApi.Choice("decline", "minecraft:barrier", "Decline")),
+                (int) (TradeRequest.EXPIRATION_MS / 1000L)));
         }
     }
 
