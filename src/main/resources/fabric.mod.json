@@ -3,7 +3,7 @@
 	"id": "player-trade",
 	"version": "${version}",
 	"name": "Player Trade",
-	"description": "Adds a player-to-player trading system",
+	"description": "Trade items face to face on a synced screen, with both offers held in escrow until you both agree",
 	"authors": [
 		"justfatlard"
 	],
