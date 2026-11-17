@@ -64,10 +64,56 @@ public class TradeManager {
         return true;
     }
 
+    /**
+     * Whether either of them is carrying things that are not theirs to trade right now, told to
+     * both: a builder's materials at a bench, say, which would come out of nothing on one side and
+     * be lost when the loan ends on the other. Asked at every step a trade could begin.
+     */
+    private static boolean onLoan(ServerPlayer one, ServerPlayer other) {
+        Component oneWhy = PandoricalApi.loans().onLoan(one);
+        Component otherWhy = PandoricalApi.loans().onLoan(other);
+        if (oneWhy == null && otherWhy == null) return false;
+        tellLoan(one, other, oneWhy, otherWhy);
+        tellLoan(other, one, otherWhy, oneWhy);
+        return true;
+    }
+
+    private static void tellLoan(ServerPlayer told, ServerPlayer other, Component ownWhy, Component otherWhy) {
+        told.sendSystemMessage((ownWhy != null
+            ? Component.translatableWithFallback("player-trade.chat.on_loan_self",
+                "You can't trade while %s: what you are carrying isn't yours to trade.", ownWhy)
+            : Component.translatableWithFallback("player-trade.chat.on_loan_other",
+                "%s can't trade while %s.", other.getName(), otherWhy)).withStyle(ChatFormatting.RED));
+    }
+
+    /** One player on their own, for the server's offers. */
+    private static boolean onLoan(ServerPlayer player) {
+        Component why = PandoricalApi.loans().onLoan(player);
+        if (why == null) return false;
+        player.sendSystemMessage(Component.translatableWithFallback("player-trade.chat.on_loan_self",
+            "You can't trade while %s: what you are carrying isn't yours to trade.", why).withStyle(ChatFormatting.RED));
+        return true;
+    }
+
+    /**
+     * Every trade with somebody now on loan, called off with everything handed back. Stepping into
+     * a loan closes the trade screen, which cancels already; this catches whatever does not.
+     */
+    public void cancelLoaned(MinecraftServer server) {
+        for (TradeSession session : List.copyOf(this.activeTrades.values())) {
+            ServerPlayer player1 = server.getPlayerList().getPlayer(session.getPlayer1Id());
+            ServerPlayer player2 = session.isServerTrade() ? null : server.getPlayerList().getPlayer(session.getPlayer2Id());
+            boolean lent = (player1 != null && PandoricalApi.loans().onLoan(player1) != null)
+                || (player2 != null && PandoricalApi.loans().onLoan(player2) != null);
+            if (lent) this.cancelTrade(session.getPlayer1Id(), server);
+        }
+    }
+
     public void sendTradeRequest(ServerPlayer sender, ServerPlayer target) {
         UUID senderId = sender.getUUID();
         UUID targetId = target.getUUID();
         if (!bothCanShow(sender, target)) return;
+        if (onLoan(sender, target)) return;
         if (this.isInTrade(senderId)) {
             sender.sendSystemMessage(Component.translatable("player-trade.chat.already_trading").withStyle(ChatFormatting.RED));
         } else if (this.isInTrade(targetId)) {
@@ -218,7 +264,9 @@ public class TradeManager {
                     acceptor.sendSystemMessage(Component.translatable("player-trade.chat.request_expired").withStyle(ChatFormatting.RED));
                     this.pendingRequests.remove(acceptorId);
                 } else if (sender.getName().getString().equalsIgnoreCase(senderName)) {
-                    if (!this.isInTrade(acceptorId) && !this.isInTrade(request.senderId())) {
+                    if (onLoan(acceptor, sender)) {
+                        // The request stands: it can still be taken up once the loan is over.
+                    } else if (!this.isInTrade(acceptorId) && !this.isInTrade(request.senderId())) {
                         this.pendingRequests.remove(acceptorId);
                         this.startTrade(sender, acceptor);
                     } else {
@@ -241,6 +289,7 @@ public class TradeManager {
 
     public void startTrade(ServerPlayer player1, ServerPlayer player2) {
         if (!bothCanShow(player2, player1) || !bothCanShow(player1, player2)) return;
+        if (onLoan(player1, player2)) return;
         TradeSession session = new TradeSession(player1.getUUID(), player2.getUUID());
         this.activeTrades.put(session.getSessionId(), session);
         this.playerToSession.put(player1.getUUID(), session.getSessionId());
@@ -481,6 +530,8 @@ public class TradeManager {
             acceptor.sendSystemMessage(Component.translatable("player-trade.chat.already_trading").withStyle(ChatFormatting.RED));
             this.pendingRequests.remove(acceptorId);
             this.pendingServerItems.remove(acceptorId);
+        } else if (onLoan(acceptor)) {
+            // The offer stands, to be taken once what they carry is their own again.
         } else {
             List<ItemStack> items = this.pendingServerItems.remove(acceptorId);
             if (items != null && !items.isEmpty()) {
@@ -499,6 +550,7 @@ public class TradeManager {
                 "Trading needs the Pandorical mod on your game.").withStyle(ChatFormatting.RED));
             return;
         }
+        if (onLoan(player)) return;
         TradeSession session = new TradeSession(player.getUUID(), TradeSession.SERVER_UUID, true);
         session.setServerOffer(items);
         this.activeTrades.put(session.getSessionId(), session);

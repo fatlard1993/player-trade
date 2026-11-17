@@ -51,6 +51,10 @@ public class PlayerTrade implements ModInitializer {
         this.registerDisconnectHandler();
         this.registerDeathHandler();
         this.registerTipIntegration();
+        // Once a second: a trade with somebody whose things are now on loan is called off.
+        net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents.END_SERVER_TICK.register(server -> {
+            if (server.getTickCount() % 20 == 0) TradeManager.getInstance().cancelLoaned(server);
+        });
         LOGGER.info("Player Trade mod initialized");
     }
 

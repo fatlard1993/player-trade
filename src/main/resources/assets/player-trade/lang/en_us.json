@@ -26,6 +26,8 @@
   "player-trade.chat.trade_complete": "Trade complete!",
   "player-trade.chat.player_busy": "%s is already in a trade",
   "player-trade.chat.already_trading": "You are already in a trade",
+  "player-trade.chat.on_loan_self": "You can't trade while %s: what you are carrying isn't yours to trade.",
+  "player-trade.chat.on_loan_other": "%s can't trade while %s.",
   "player-trade.chat.inventory_full": "Trade failed: inventory full",
   "player-trade.chat.request_declined": "%s declined the trade"
 }
